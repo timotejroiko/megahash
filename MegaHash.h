@@ -175,8 +175,10 @@ public:
 	
 	void clear();
 	void clear(unsigned char slice);
+	void clear(unsigned char slice1, unsigned char slice2);
 	
 	// internal methods:
+	void clearSlice(Index *level, unsigned char *slices, unsigned char idx);
 	void clearTag(Tag *tag);
 	void reindexBucket(Bucket *bucket, Index *index, unsigned char digestIndex);
 	void traverseTag(Response *resp, Tag *tag, unsigned char *key, MH_KLEN_T keyLength, unsigned char *digest, unsigned char digestIndex, unsigned char *returnNext);

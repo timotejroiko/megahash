@@ -299,7 +299,7 @@ void Hash::clear() {
 }
 
 void Hash::clear(unsigned char slice) {
-	// clear one "slice" from main index (about 1/256 of total keys)
+	// clear one "thick slice" from main index (about 1/256 of total keys)
 	// this is so you can split up the job into pieces and not hang the CPU for too long
 	unsigned char slice1 = slice / 16;
 	unsigned char slice2 = slice % 16;
@@ -329,6 +329,38 @@ void Hash::clear(unsigned char slice) {
 		else if (tag->type == MH_SIG_BUCKET) {
 			clearTag( tag );
 			index->data[slice1] = NULL;
+		}
+	}
+}
+
+void Hash::clear(unsigned char char1, unsigned char char2) {
+	// clear one "thin slice" from main index (about 1/65536 of total keys)
+	// this is so you can split up the job into pieces and not hang the CPU for too long
+	unsigned char slices[4];
+	slices[0] = char1 / 16;
+	slices[1] = char1 % 16;
+	slices[2] = char2 / 16;
+	slices[3] = char2 % 16;
+	
+	clearSlice( index, slices, 0 );
+}
+
+void Hash::clearSlice(Index *level, unsigned char *slices, unsigned char idx) {
+	// traverse one 4-bit slice and traverse if we have more slices to go
+	unsigned char slice = slices[idx];
+	
+	if (level->data[slice]) {
+		Tag *tag = level->data[slice];
+		if (tag->type == MH_SIG_INDEX) {
+			if (idx < 3) clearSlice( (Index *)tag, slices, idx + 1 );
+			else {
+				clearTag( tag );
+				level->data[slice] = NULL;
+			}
+		}
+		else if (tag->type == MH_SIG_BUCKET) {
+			clearTag( tag );
+			level->data[slice] = NULL;
 		}
 	}
 }
