@@ -112,13 +112,22 @@ Napi::Value MegaHash::Remove(const Napi::CallbackInfo& info) {
 
 Napi::Value MegaHash::Clear(const Napi::CallbackInfo& info) {
 	// delete some or all keys/values from hash, free all memory
-	unsigned char slice = 0;
+	unsigned char slice1 = 0;
+	unsigned char slice2 = 0;
 	
-	if (info.Length() > 0) {
-		slice = (unsigned char)info[0].As<Napi::Number>().Uint32Value();
-		this->hash->clear( slice );
+	if (info.Length() == 2) {
+		// clear thin slice
+		slice1 = (unsigned char)info[0].As<Napi::Number>().Uint32Value();
+		slice2 = (unsigned char)info[1].As<Napi::Number>().Uint32Value();
+		this->hash->clear( slice1, slice2 );
+	}
+	else if (info.Length() == 1) {
+		// clear thick slice
+		slice1 = (unsigned char)info[0].As<Napi::Number>().Uint32Value();
+		this->hash->clear( slice1 );
 	}
 	else {
+		// clear all
 		this->hash->clear();
 	}
 	
