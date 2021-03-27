@@ -1,0 +1,535 @@
+<!DOCTYPE HTML>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<title>MegaHash Performance Test</title>
+	
+	<!-- <link rel="stylesheet" href="style.css"> -->
+	<style>
+		/* html, body { margin: 0; padding: 0; } */
+		body { font-family: Helvetica, sans-serif; }
+		
+		.container {
+			width: 80vw;
+			margin: 30px auto 30px auto;
+		}
+		
+		h2 {
+			margin-top: 30px;
+			margin-bottom: 5px;
+			font-size: 18px;
+			color:rgb(55, 145, 245);
+		}
+		
+		.sum_box {
+			display: grid;
+			grid-template-columns: 1fr 1fr 1fr 1fr 1fr;
+			grid-auto-rows: 1fr;
+			grid-column-gap: 30px;
+			grid-row-gap: 30px;
+			
+			background: #f8f8f8;
+			border: 1px solid #eee;
+			padding: 25px;
+		}
+		
+		.sum_item {
+			
+		}
+		
+		.sum_label {
+			font-size: 13px;
+			text-transform: uppercase;
+			color: #777;
+		}
+		
+		.sum_value {
+			font-size: 13px;
+		}
+		
+		.graph_wrap {
+			margin-bottom: 30px;
+		}
+	</style>
+	
+	<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+	<script src="https://cdn.jsdelivr.net/npm/chart.js@2.9.4"></script>
+	
+	<script>
+		function pluralize(word, num) {
+			// Pluralize a word using simplified English language rules.
+			if (num != 1) {
+				if (word.match(/[^e]y$/)) return word.replace(/y$/, '') + 'ies';
+				else if (word.match(/s$/)) return word + 'es'; // processes
+				else return word + 's';
+			}
+			else return word;
+		};
+		
+		function get_text_from_bytes(bytes, precision) {
+			// convert raw bytes to english-readable format
+			// set precision to 1 for ints, 10 for 1 decimal point (default), 100 for 2, etc.
+			bytes = Math.floor(bytes);
+			if (!precision) precision = 10;
+			
+			if (bytes >= 1024) {
+				bytes = Math.floor( (bytes / 1024) * precision ) / precision;
+				if (bytes >= 1024) {
+					bytes = Math.floor( (bytes / 1024) * precision ) / precision;
+					if (bytes >= 1024) {
+						bytes = Math.floor( (bytes / 1024) * precision ) / precision;
+						if (bytes >= 1024) {
+							bytes = Math.floor( (bytes / 1024) * precision ) / precision;
+							return bytes + ' TB';
+						} 
+						else return bytes + ' GB';
+					} 
+					else return bytes + ' MB';
+				}
+				else return bytes + ' K';
+			}
+			else return bytes + pluralize(' byte', bytes);
+		};
+		
+		function commify(number) {
+			// add commas to integer, like 1,234,567
+			if (!number) number = 0;
+
+			number = '' + number;
+			if (number.length > 3) {
+				var mod = number.length % 3;
+				var output = (mod > 0 ? (number.substring(0,mod)) : '');
+				for (i=0 ; i < Math.floor(number.length / 3); i++) {
+					if ((mod == 0) && (i == 0))
+						output += number.substring(mod+ 3 * i, mod + 3 * i + 3);
+					else
+						output+= ',' + number.substring(mod + 3 * i, mod + 3 * i + 3);
+				}
+				return (output);
+			}
+			else return number;
+		};
+
+		function short_float(value, places) {
+			// Shorten floating-point decimal to N places max
+			if (!places) places = 2;
+			var mult = Math.pow(10, places);
+			return( Math.floor(parseFloat(value || 0) * mult) / mult );
+		};
+		
+		function short_num(num) {
+			// shorten number to K/M/B
+			if (num >= 1000000000) num = '' + Math.floor(num / 1000000000) + 'B';
+			else if (num >= 1000000) num = '' + Math.floor(num / 1000000) + 'M';
+			else if (num >= 1000) num = '' + Math.floor(num / 1000) + 'K';
+			return num;
+		};
+		
+		function load(json) {
+			// test info
+			var info = json.info;
+			var versions = info.versions;
+			var rows = json.rows;
+			var last_row = rows[ rows.length - 1 ];
+			var html = '';
+			
+			// mega version
+			html += '<div class="sum_item"><div class="sum_label">MegaHash Version</div><div class="sum_value">' + versions.mega + '</div></div>';
+			
+			// node version
+			html += '<div class="sum_item"><div class="sum_label">NodeJS Version</div><div class="sum_value">' + versions.node + '</div></div>';
+			
+			// v8 version
+			html += '<div class="sum_item"><div class="sum_label">V8 Version</div><div class="sum_value">' + versions.v8 + '</div></div>';
+			
+			// cpu info
+			var cpu_info = '' + info.cpus.length + ' x ' + info.cpus[0].model;
+			html += '<div class="sum_item"><div class="sum_label">CPU Info</div><div class="sum_value">' + cpu_info + '</div></div>';
+			
+			// arch
+			// html += '<div class="sum_item"><div class="sum_label">Architecture</div><div class="sum_value">' + info.arch + '</div></div>';
+			
+			// platform
+			html += '<div class="sum_item"><div class="sum_label">Platform / Arch</div><div class="sum_value">' + info.platform + ' / ' + info.arch + '</div></div>';
+			
+			// endianness
+			// html += '<div class="sum_item"><div class="sum_label">Endianness</div><div class="sum_value">' + info.endianness + '</div></div>';
+			
+			// total memory
+			html += '<div class="sum_item"><div class="sum_label">System RAM</div><div class="sum_value">' + get_text_from_bytes(info.mem) + '</div></div>';
+			
+			// date/time
+			var nice_date = (new Date( info.date * 1000 )).toString();
+			html += '<div class="sum_item"><div class="sum_label">Date/Time</div><div class="sum_value">' + nice_date + '</div></div>';
+			
+			// max keys
+			html += '<div class="sum_item"><div class="sum_label">Hash Keys</div><div class="sum_value">' + commify(last_row.stats.numKeys) + '</div></div>';
+			
+			// key length
+			html += '<div class="sum_item"><div class="sum_label">Key Size</div><div class="sum_value">' + json.key_len + '</div></div>';
+			
+			// value length
+			html += '<div class="sum_item"><div class="sum_label">Value Size</div><div class="sum_value">' + json.value_len + '</div></div>';
+			
+			$('#d_info').html( html );
+			
+			// benchmark results
+			html = '';
+			
+			var tot_writes_sec = 0;
+			var tot_reads_sec = 0;
+			
+			rows.forEach( function(row) {
+				tot_writes_sec += row.write_iter_sec;
+				tot_reads_sec += row.read_iter_sec;
+			} );
+			
+			var avg_writes_sec = Math.floor( tot_writes_sec / rows.length );
+			var avg_reads_sec = Math.floor( tot_reads_sec / rows.length );
+			
+			// avg writes/sec
+			html += '<div class="sum_item"><div class="sum_label">Avg Writes/Sec</div><div class="sum_value">' + commify(avg_writes_sec) + '</div></div>';
+			
+			// avg reads/sec
+			html += '<div class="sum_item"><div class="sum_label">Avg Reads/Sec</div><div class="sum_value">' + commify(avg_reads_sec) + '</div></div>';
+			
+			// process mem (rss)
+			html += '<div class="sum_item"><div class="sum_label">Process Memory (RSS)</div><div class="sum_value">' + get_text_from_bytes(last_row.mem) + '</div></div>';
+			
+			// index size
+			html += '<div class="sum_item"><div class="sum_label">Mega Index Size</div><div class="sum_value">' + get_text_from_bytes(last_row.stats.indexSize) + '</div></div>';
+			
+			// meta size
+			html += '<div class="sum_item"><div class="sum_label">Mega Meta Size</div><div class="sum_value">' + get_text_from_bytes(last_row.stats.metaSize) + '</div></div>';
+			
+			// data size
+			html += '<div class="sum_item"><div class="sum_label">Mega Data Size</div><div class="sum_value">' + get_text_from_bytes(last_row.stats.dataSize) + '</div></div>';
+			
+			var stats = last_row.stats;
+			var mem = last_row.mem;
+			var mh_overhead = stats.indexSize + stats.metaSize;
+			
+			var os_total = mem;
+			var os_overhead = os_total - (stats.indexSize + stats.metaSize + stats.dataSize);
+			var total_overhead = os_total - stats.dataSize;
+			var key_overhead = Math.round(total_overhead / stats.numKeys);
+			
+			// megahash overhead
+			html += '<div class="sum_item"><div class="sum_label">Mega Overhead</div><div class="sum_value">' + get_text_from_bytes(mh_overhead) + '</div></div>';
+			
+			// os overhead
+			html += '<div class="sum_item"><div class="sum_label">OS Overhead</div><div class="sum_value">' + get_text_from_bytes(os_overhead) + '</div></div>';
+			
+			// total overhead
+			html += '<div class="sum_item"><div class="sum_label">Total Overhead</div><div class="sum_value">' + get_text_from_bytes(total_overhead) + '</div></div>';
+
+			// overhead per key
+			html += '<div class="sum_item"><div class="sum_label">Overhead Per Key</div><div class="sum_value">' + get_text_from_bytes(key_overhead) + '</div></div>';
+			
+			$('#d_results').html( html );
+			
+			// perf graph
+			render_perf_graph(json);
+			
+			// mem graph
+			render_mem_graph(json);
+			
+			// key overhead graph
+			render_key_overhead_graph(json);
+		};
+		
+		var color = Chart.helpers.color;
+		var graphColors = [ "#008FFB", "#00E396", "#FEB019", "#FF4560", "#775DD0", "#3F51B5", "#4CAF50", "#546E7A", "#D4526E", "#A5978B", "#C7F464", "#81D4FA", "#2B908F", "#F9A3A4", "#90EE7E", "#FA4443", "#449DD1", "#F86624", "#69D2E7", "#EA3546", "#662E9B", "#C5D86D", "#D7263D", "#1B998B", "#2E294E", "#F46036", "#E2C044", "#662E9B", "#F86624", "#F9C80E", "#EA3546", "#43BCCD", "#5C4742", "#A5978B", "#8D5B4C", "#5A2A27", "#C4BBAF", "#A300D6", "#7D02EB", "#5653FE", "#2983FF", "#00B1F2", "#03A9F4", "#33B2DF", "#4ECDC4", "#13D8AA", "#FD6A6A", "#F9CE1D", "#FF9800" ];
+		var myCharts = {};
+		
+		function render_perf_graph(json) {
+			// render perf graph
+			var chartData = {
+				datasets: [
+					{
+						label: 'Writes/sec',
+						backgroundColor: graphColors[0],
+						borderColor: graphColors[0],
+						data: [],
+						fill: false,
+						borderWidth: 1,
+						pointRadius: 0
+					},
+					{
+						label: 'Reads/sec',
+						backgroundColor: graphColors[1],
+						borderColor: graphColors[1],
+						data: [],
+						fill: false,
+						borderWidth: 1,
+						pointRadius: 0
+					}
+				]
+			};
+			
+			json.rows.forEach( function(row) {
+				chartData.datasets[0].data.push({ x: row.idx, y: row.write_iter_sec });
+				chartData.datasets[1].data.push({ x: row.idx, y: row.read_iter_sec });
+			} );
+			
+			Chart.scaleService.updateScaleDefaults('linear', {
+			    ticks: {
+			        min: 0
+			    }
+			});
+			
+			var ctx = $('#c_perf')[0].getContext('2d');
+			
+			myCharts.perf = Chart.Line(ctx, {
+				data: chartData,
+				options: {
+					height: 400,
+					title: {
+						display: true,
+						text: 'MegaHash Performance'
+					},
+					scales: {
+						xAxes: [{
+							type: 'linear',
+							position: 'bottom',
+							ticks: {
+								userCallback: function(value) {
+									return short_num(value);
+								},
+							},
+							scaleLabel: {
+								labelString: 'Total Hash Keys',
+								display: true,
+							}
+						}],
+						yAxes: [{
+							type: 'linear',
+							ticks: {
+								userCallback: function(value) {
+									if (value >= 1000000) {
+										value = Math.floor( (value / 1000000) * 10 ) / 10;
+										return '' + value + 'M/sec';
+									}
+									return short_num(value) + '/sec';
+								}
+							},
+							scaleLabel: {
+								labelString: 'Ops/sec',
+								display: true
+							}
+						}]
+					}
+				}
+			});
+		};
+		
+		function render_mem_graph(json) {
+			// render memory usage graph
+			var chartData = {
+				datasets: [
+					{
+						label: 'Total Memory',
+						backgroundColor: graphColors[0],
+						borderColor: graphColors[0],
+						data: [],
+						fill: false,
+						borderWidth: 2,
+						pointRadius: 0
+					},
+					{
+						label: 'Data Memory',
+						backgroundColor: graphColors[1],
+						borderColor: graphColors[1],
+						data: [],
+						fill: false,
+						borderWidth: 2,
+						pointRadius: 0
+					},
+					{
+						label: 'Mega Overhead',
+						backgroundColor: graphColors[2],
+						borderColor: graphColors[2],
+						data: [],
+						fill: false,
+						borderWidth: 2,
+						pointRadius: 0
+					},
+					{
+						label: 'OS Overhead',
+						backgroundColor: graphColors[3],
+						borderColor: graphColors[3],
+						data: [],
+						fill: false,
+						borderWidth: 2,
+						pointRadius: 0
+					},
+					{
+						label: 'Total Overhead',
+						backgroundColor: graphColors[4],
+						borderColor: graphColors[4],
+						data: [],
+						fill: false,
+						borderWidth: 2,
+						pointRadius: 0
+					}
+				]
+			};
+			
+			json.rows.forEach( function(row) {
+				var stats = row.stats;
+				var mem = row.mem;
+				var mh_overhead = stats.indexSize + stats.metaSize;
+				
+				var os_total = mem;
+				var os_overhead = os_total - (stats.indexSize + stats.metaSize + stats.dataSize);
+				var total_overhead = os_total - stats.dataSize;
+				var key_overhead = Math.round(total_overhead / stats.numKeys);
+				
+				chartData.datasets[0].data.push({ x: row.idx, y: os_total });
+				chartData.datasets[1].data.push({ x: row.idx, y: stats.dataSize });
+				chartData.datasets[2].data.push({ x: row.idx, y: mh_overhead });
+				chartData.datasets[3].data.push({ x: row.idx, y: os_overhead });
+				chartData.datasets[4].data.push({ x: row.idx, y: total_overhead });
+			} );
+			
+			Chart.scaleService.updateScaleDefaults('linear', {
+			    ticks: {
+			        min: 0
+			    }
+			});
+			
+			var ctx = $('#c_mem')[0].getContext('2d');
+			
+			myCharts.mem = Chart.Line(ctx, {
+				data: chartData,
+				options: {
+					height: 400,
+					title: {
+						display: true,
+						text: 'MegaHash Memory Usage'
+					},
+					scales: {
+						xAxes: [{
+							type: 'linear',
+							position: 'bottom',
+							ticks: {
+								userCallback: function(value) {
+									return '' + Math.floor(value / 1000000) + ' M';
+								},
+							},
+							scaleLabel: {
+								labelString: 'Total Hash Keys',
+								display: true,
+							}
+						}],
+						yAxes: [{
+							type: 'linear',
+							ticks: {
+								userCallback: function(value) {
+									return '' + get_text_from_bytes( value, 10 );
+								}
+							},
+							scaleLabel: {
+								labelString: 'Memory Usage',
+								display: true
+							}
+						}]
+					}
+				}
+			});
+		};
+		
+		function render_key_overhead_graph(json) {
+			// render key overhead graph
+			var chartData = {
+				datasets: [
+					{
+						label: 'Key Overhead',
+						backgroundColor: graphColors[0],
+						borderColor: graphColors[0],
+						data: [],
+						fill: false,
+						borderWidth: 2,
+						pointRadius: 0
+					}
+				]
+			};
+			
+			json.rows.forEach( function(row) {
+				var stats = row.stats;
+				var mem = row.mem;
+				var mh_overhead = stats.indexSize + stats.metaSize;
+				
+				var os_total = mem;
+				var os_overhead = os_total - (stats.indexSize + stats.metaSize + stats.dataSize);
+				var total_overhead = os_total - stats.dataSize;
+				var key_overhead = Math.round(total_overhead / stats.numKeys);
+				
+				chartData.datasets[0].data.push({ x: row.idx, y: key_overhead });
+			} );
+			
+			Chart.scaleService.updateScaleDefaults('linear', {
+			    ticks: {
+			        min: 0
+			    }
+			});
+			
+			var ctx = $('#c_keyover')[0].getContext('2d');
+			
+			myCharts.keyover = Chart.Line(ctx, {
+				data: chartData,
+				options: {
+					height: 400,
+					title: {
+						display: true,
+						text: 'MegaHash Overhead Per Key'
+					},
+					scales: {
+						xAxes: [{
+							type: 'linear',
+							position: 'bottom',
+							ticks: {
+								userCallback: function(value) {
+									return '' + Math.floor(value / 1000000) + ' M';
+								},
+							},
+							scaleLabel: {
+								labelString: 'Total Hash Keys',
+								display: true,
+							}
+						}],
+						yAxes: [{
+							type: 'linear',
+							ticks: {
+								userCallback: function(value) {
+									return '' + get_text_from_bytes( value, 1 );
+								}
+							},
+							scaleLabel: {
+								labelString: 'Memory Per Key',
+								display: true
+							}
+						}]
+					}
+				}
+			});
+		};
+	</script>
+	
+</head>
+<body>
+	<div class="container">
+		<h2>MegaHash Performance Test</h2>
+		<div class="sum_box" id="d_info"></div>
+		
+		<h2>Benchmark Results</h2>
+		<div class="sum_box" id="d_results"></div>
+		
+		<h2>Graphs</h2>
+		<div class="graph_wrap"><canvas id="c_perf"></canvas></div>
+		<div class="graph_wrap"><canvas id="c_mem"></canvas></div>
+		<div class="graph_wrap"><canvas id="c_keyover"></canvas></div>
+	</div>
+	<script src="v1.0.5-darwin-ideal-100M.js"></script>
+</body>
+</html>
