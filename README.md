@@ -4,8 +4,6 @@
 - [Overview](#overview)
 	* [MegaHash Features](#megahash-features)
 	* [Performance](#performance)
-		+ [Memory Usage](#memory-usage)
-		+ [1 Billion Keys](#1-billion-keys)
 - [Installation](#installation)
 - [Usage](#usage)
 	* [Setting and Getting](#setting-and-getting)
@@ -32,6 +30,7 @@
 - [Internals](#internals)
 	* [Limits](#limits)
 	* [Memory Overhead](#memory-overhead)
+	* [Benchmark Script](#benchmark-script)
 - [Caveats](#caveats)
 - [Future](#future)
 - [License](#license)
@@ -40,9 +39,9 @@
 
 # Overview
 
-**MegaHash** is a super-fast C++ [hash table](https://en.wikipedia.org/wiki/Hash_table) with a Node.js wrapper, capable of storing over 1 billion keys, has read/write speeds above 500,000 keys per second (depending on CPU speed and total keys in hash), and relatively low memory overhead.  This module is designed primarily as a replacement for [ES6 Maps](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Map), which seem to crash Node.js after about 15 million keys.  However, please note that there are some [caveats](#caveats).
+**MegaHash** is a super-fast C++ [hash table](https://en.wikipedia.org/wiki/Hash_table) with a Node.js wrapper, capable of storing over 1 billion keys, has read/write speeds above 500,000 keys per second (depending on CPU speed, key/value size, and total keys in hash), and low memory overhead (~30 bytes per key).  However, please note that there are some [caveats](#caveats).
 
-I do know of the [hashtable](https://www.npmjs.com/package/hashtable) module on NPM, and have used it in the past.  The problem is, that implementation stores everything on the V8 heap, so it runs into serious performance dips with tens of millions of keys (see below).  Also, it seems like the author may have abandoned it (open issues are going unanswered), and it doesn't compile on Node v12.
+I do know of the [hashtable](https://www.npmjs.com/package/hashtable) module on NPM, and have used it in the past.  The problem is, that implementation stores everything on the V8 heap, so it runs into serious performance dips with tens of millions of keys.  Also, it seems like the author may have abandoned it (open issues are going unanswered), and it doesn't compile on Node v12+.
 
 ## MegaHash Features
 
@@ -52,47 +51,33 @@ I do know of the [hashtable](https://www.npmjs.com/package/hashtable) module on 
 - All data is stored off the V8 heap.
 - Buffers, strings, numbers, booleans and objects are supported.
 - Tested up to 1 billion keys.
-- Mostly compatible with the basic ES6 Map API.
+- Mostly compatible with the basic [ES6 Map API](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Map).
 
 ## Performance
 
-For performance benchmarking, we compare MegaHash to the native Node.js [ES6 Map](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Map), the C++ [std::unordered_map](https://en.cppreference.com/w/cpp/container/unordered_map) (with Node.js wrapper), and also the NPM [hashtable](https://www.npmjs.com/package/hashtable) module.  All tests were run on a AWS [c5.9xlarge](https://aws.amazon.com/ec2/instance-types/c5/) virtual machine with Node v12.11.1 (and Node v6 for the hashtable module).  Keys were varied between 1 to 9 bytes in length, and values were between 96 to 128 bytes.
+See the chart below, which fills up a hash with 1 billion keys while measuring both read and write performance.  This is an "ideal" case, with very small keys and values, simply to illustrate the maximum possible speed and hash overhead:
 
-Here are write speeds up to 100 million keys *(higher is better)*:
+![](https://pixlcore.com/software/megahash/v1.0.5/v1.0.5-linux-ideal-1B-perf.png)
 
-![](https://pixlcore.com/software/megahash/docs/perf-writes-100m-4bit.png)
+The average writes/sec was 535,261, and reads/sec was 961,852.  This was on an AWS EC2 c5a.16xlarge VM.  The performance is fairly consistent regardless of the total number of keys.  As for memory usage, here is the chart:
 
-A few things to note here.  First, with hash sizes under 5 million keys, the native Node.js ES6 Map absolutely blows everything else out of the water.  It is **lightning fast**.  However, as you can see, performance dips quickly thereafter, and the line stops abruptly around 15 million keys, which is where Node.js [crashes](https://gist.github.com/jhuckaby/cb0ac839cd704ec28b122555fe8c8bf8).  This seems like some kind of hard key limit with Maps, as it dies here every time (yes, I increased the memory with `--max-old-space-size`).
+![](https://pixlcore.com/software/megahash/v1.0.5/v1.0.5-linux-ideal-1B-mem.png)
 
-The NPM [hashtable](https://www.npmjs.com/package/hashtable) module made it all the way, but unfortunately has some severe performance dips, where it totally stalls out for up to a minute or more, then picks back up again.  This trend continues all the way to 100M keys.  The overall average was only 30,000 keys per second for this module, due to all the stalling.
+At 1 billion keys, MegaHash requires about 27.4 GB memory overhead.  This divides out to approximately 30 bytes per key.  Here is the overhead per key illustrated:
 
-The C++ [std::unordered_map](https://en.cppreference.com/w/cpp/container/unordered_map) (with a Node.js wrapper) performs pretty well, but also suffers from occasional performance dips, presumably when it resizes its indexes (as the dips also correspond with a sharp increase in performance).
+![](https://pixlcore.com/software/megahash/v1.0.5/v1.0.5-linux-ideal-1B-overhead.png)
 
-And here are random read speeds up to 100 million keys *(higher is better)*:
+For more benchmark results, see the table below:
 
-![](https://pixlcore.com/software/megahash/docs/perf-reads-100m-4bit.png)
+| Test Description | Record Size | Hardware | OS | Link |
+|------------------|-------------|----------|----|------|
+| Mac Standard 100M Keys | 96 - 128 chars | 2020 MacBook Pro 16" | macOS 10.15.7 | [View Results](https://pixlcore.com/software/megahash/v1.0.5/results/v1.0.5-darwin-100M.html) |
+| Mac Ideal 100M Keys | 1 char | 2020 MacBook Pro 16" | macOS 10.15.7 | [View Results](https://pixlcore.com/software/megahash/v1.0.5/results/v1.0.5-darwin-ideal-100M.html) |
+| Linux Standard 100M Keys | 96 - 128 chars | AWS EC2 c5a.16xlarge | AWS Linux 2021 | [View Results](https://pixlcore.com/software/megahash/v1.0.5/results/v1.0.5-linux-c5a-100M.html) |
+| Linux Standard 100M Keys | 96 - 128 chars | AWS EC2 c5.metal | AWS Linux 2021 | [View Results](https://pixlcore.com/software/megahash/v1.0.5/results/v1.0.5-linux-c5metal-100M.html) |
+| Linux Ideal 1B Keys | 1 char | AWS EC2 c5a.16xlarge | AWS Linux 2021 | [View Results](https://pixlcore.com/software/megahash/v1.0.5/results/v1.0.5-linux-ideal-1B.html) |
 
-Basically the same story here with ES6 Maps.  With smaller hash sizes, it is the clear winner by a mile, topping out at almost 1.5 million keys per second.  But again, with hashes over 10M keys, it starts to get very wonky, intermittently stalling out, and finally [hard crashes Node.js](https://gist.github.com/jhuckaby/cb0ac839cd704ec28b122555fe8c8bf8).
-
-For reading random keys, the graph seems to indicate that [hashtable](https://www.npmjs.com/package/hashtable) comes out ahead of MegaHash.  But as you can see it still has performance dips, where it drops to almost 0 keys/sec in a full on "stall", then it recovers.  I suspect this is because all data is stored on the V8 heap (just a guess).
-
-The C++ [std::unordered_map](https://en.cppreference.com/w/cpp/container/unordered_map) performs the best overall with random reads, beating MegaHash consistently all the way to 100M keys.  However, MegaHash wins in both write performance, and memory usage (see below).
-
-### Memory Usage
-
-Here is a look at process memory usage up to 100 million keys *(lower is better)*:
-
-![](https://pixlcore.com/software/megahash/docs/mem-100m.png)
-
-All four of the libraries were fed the exact same keys and values, and yet MegaHash seems to use the least amount of memory.  This may be due to MegaHash's [unique approach to indexing](#internals).  All 4 processes were measured the same way, using [process.memoryUsage().rss](https://nodejs.org/api/process.html#process_process_memoryusage).  
-
-### 1 Billion Keys
-
-Pushing past 100M keys, here is a performance graph of MegaHash all the way to 1 billion keys (I rented an [i3.8xlarge](https://aws.amazon.com/ec2/instance-types/i3/) for this test):
-
-![](https://pixlcore.com/software/megahash/docs/perf-writes-1b-4bit.png)
-
-That small performance dip between 150 and 350 million keys is due to reindexing, which is an unfortunate side effect of hashing.  However, it never drops below 450K writes/sec, and averages around 500K/sec.  At 1 billion keys, reads/sec were about 300K/sec.
+All results were produced using the included [Benchmark Script](#benchmark-script).
 
 # Installation
 
@@ -288,9 +273,11 @@ The response object will contain the following properties:
 |---------------|-------------|
 | `numKeys` | The total number of keys in the hash.  You can also get this by calling [length()](#length). |
 | `dataSize` | The total data size in bytes (all of your raw keys and values). |
-| `indexSize` | Internal memory usage by the MegaHash indexing system (i.e. overhead). |
-| `metaSize` | Internal memory stored along with your key/value pairs (i.e. overhead). |
-| `numIndexes` | The number of internal indexes current in use. |
+| `indexSize` | Internal memory usage by the MegaHash indexing system (i.e. overhead), in bytes. |
+| `metaSize` | Internal memory stored along with your key/value pairs (i.e. overhead), in bytes. |
+| `numIndexes` | The number of internal indexes currently in use. |
+
+To compute the total overhead, add `indexSize` to `metaSize`.  For total memory usage, add `dataSize` to that.  However, please note that the OS adds its own memory overhead on top of this (i.e. byte alignment, malloc overhead, etc.).  All the benchmarking scripts account for this by measuring the total process size.
 
 # API
 
@@ -366,6 +353,18 @@ Delete *all* keys from the hash, effectively freeing all memory (except for inde
 hash.clear();
 ```
 
+You can also optionally pass in one or two 8-bit unsigned integers to this method, to clear an arbitrary "slice" of the total keys.  This is an advanced trick, only used for clearing out extremely large hashes in small chunks, as to not hang the main thread.  Pass in one number between 0 - 256 to clear a "thick slice" (approximately 1/256 of total keys).  Example:
+
+```js
+hash.clear( 34 );
+```
+
+Pass in *two* numbers between 0 - 256 to clear a "thin slice" (approximately 1/65536 of total keys).  Example:
+
+```js
+hash.clear( 84, 191 );
+```
+
 ## nextKey
 
 ```
@@ -422,7 +421,7 @@ See [Hash Stats](#hash-stats) for more details about these properties.
 
 MegaHash uses [separate chaining](https://en.wikipedia.org/wiki/Hash_table#Separate_chaining) to store data, which is a combination of an index and a linked list.  However, our indexing system is unique in that the indexes themselves become links on the chain, when the linked lists reach a certain size.  Effectively, the indexes are *nested*, using different bits of the key digest, and the index tree grows as more keys are added.
 
-Keys are digested using the 32-bit [DJB2](http://www.cs.yorku.ca/~oz/hash.html) algorithm, but then MegaHash splits the digest into 8 slices (4 bits each).  Each slice becomes a separate index level (each with 16 slots).  The indexes are dynamic and only create themselves as needed, so a hash starts with only one main index, utilizing only the first 4 bits of the key digest.  When lists grow beyond a fixed size (plus a scatter factor), a "reindex" occurs, where new indexes nest inside themselves, using additional slices of the digest.
+Keys are digested (a.k.a. hashed) using the 32-bit [DJB2](http://www.cs.yorku.ca/~oz/hash.html) algorithm, but then MegaHash splits the digest into 8 slices (4 bits each).  Each slice becomes a separate index level (each with 16 slots).  The indexes are dynamic and only create themselves as needed, so a hash starts with only one main index, utilizing only the first 4 bits of the key digest.  When lists grow beyond a fixed size (plus a scatter factor), a "reindex" occurs, where new indexes nest inside themselves, using additional slices of the digest.
 
 This design allows MegaHash to grow and reindex without losing much performance or stalling / lagging.  Effectively a reindex event only has to move a handful of keys each time.
 
@@ -444,31 +443,45 @@ MegaHash is currently hard-coded to use between 8 and 24 buckets (key/value pair
 
 Each MegaHash index record is 128 bytes (16 pointers, 64-bits each), and each bucket adds 24 bytes of overhead.  The tuple (key + value, along with lengths) is stored as a single blob (single `malloc()` call) to reduce memory fragmentation from allocating the key and value separately.
 
-At 100 million keys, the total memory overhead is approximately 3.3 GB.  At 1 billion keys, it is 30 GB:
+At 100 million keys, the total memory overhead is approximately 2.7 GB.  At 1 billion keys, it is 27.4 GB.  This equates to approximately 30 bytes per key.
 
-![](https://pixlcore.com/software/megahash/docs/mem-1b-4bit.png)
+## Benchmark Script
 
-This is primarily due to the per-bucket "metadata" storage, which is currently adding 24 bytes per key.  Frankly, at least 7 bytes of this is total waste, due to C++ memory alignment.  I'm sure there are many potential improvements to be made here, but for now, it works well enough for my uses.
+The script used to produce the graphs and benchmark results above is included in the repo.  See the `test` directory, and run either `bench-perf-mem.js` for a standard test (with 96 - 128 byte values), or `bench-ideal.js` for an "ideal" test (with 1 byte values).  The scripts accept the following command-line arguments:
+
+| Argument | Description |
+|----------|-------------|
+| `--max` | The total number of keys to write into the hash, defaults to `100000000` (100M). |
+| `--name` | Name of the test, which affects the result filenames written into the `test/results/` directory. |
+
+Example use:
+
+```
+cd megahash/test
+node bench-perf-mem.js --name MYTEST --max 100000000
+```
+
+See the `test/results/` directory for the output files.  The script produces a HTML file and a JS file (and one loads the other in the browser).  Make sure you have **lots** of available RAM for this test.  A 100M test requires 14GB RAM!
 
 # Caveats
 
-Please note that Megahash is **not** a complete drop-in replacement for [ES6 Maps](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Map).  Specifically:
+Please note that MegaHash is **not** a complete drop-in replacement for [ES6 Maps](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Map).  Specifically:
 
-- Objects are serialized to JSON when passed as values to Megahash, and unserialized when fetched.  This is because data is stored outside the V8 heap in C++ memory, so everything is internally converted to/from Buffers.  That means object serialization.
+- Objects are serialized to JSON when passed as values to MegaHash, and unserialized when fetched.  This is because data is stored outside the V8 heap in C++ memory, so everything is internally converted to/from Buffers.  That means object serialization.
 - Only a subset of the ES6 Map interface is implemented currently.  Specifically [get](#get), [set](#set), [has](#has), [delete](#delete), [clear](#clear) and [length](#length).
 	- Also note that [length](#length) is a method, not a property.
 
 # Future
 
 - Precompiled binaries
-- Reduce per-bucket memory overhead
+- Reduce per-key memory overhead
 - Implement more of the ES6 Map interface
 
 # License
 
 **The MIT License (MIT)**
 
-*Copyright (c) 2019 Joseph Huckaby*
+*Copyright (c) 2021 Joseph Huckaby*
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
 
