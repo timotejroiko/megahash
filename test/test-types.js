@@ -1,5 +1,5 @@
 const { performance } = require("perf_hooks");
-const MegaHash = require('.');
+const MegaHash = require('../');
 const hash = new MegaHash();
 const N = 5000000;
 
